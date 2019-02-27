@@ -168,6 +168,7 @@ class App {
     pickPhysicalDevice();
     createLogicalDevice();
     createSwapChain();
+    createImageViews();
   }
 
   void mainLoop() {
@@ -191,6 +192,10 @@ class App {
   }
 
   void cleanup() {
+    for (auto image_view : _swapchain_image_views) {
+      vkDestroyImageView(_device, image_view, nullptr);
+    }
+
     vkDestroySwapchainKHR(_device, _swapchain, nullptr);
     vkDestroyDevice(_device, nullptr);
     vkDestroySurfaceKHR(_instance, _surface, nullptr);
@@ -380,6 +385,26 @@ class App {
     _swapchain_extent = extent;
   }
 
+  void createImageViews() {
+    _swapchain_image_views.resize(_swapchain_images.size());
+    for (auto i = 0; i < _swapchain_images.size(); ++i) {
+      VkImageViewCreateInfo create_info{};
+      create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+      create_info.image = _swapchain_images[i];
+      create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+      create_info.format = _swapchain_image_format;
+      create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      create_info.subresourceRange.baseMipLevel = 0;
+      create_info.subresourceRange.levelCount = 1;
+      create_info.subresourceRange.baseArrayLayer = 0;
+      create_info.subresourceRange.layerCount = 1;
+      if (vkCreateImageView(_device, &create_info, nullptr, &_swapchain_image_views[i]) !=
+          VK_SUCCESS) {
+        throw std::runtime_error("failed to create image views!");
+      }
+    }
+  }
+
  private:
   bool isDeviceSuitable(VkPhysicalDevice device) {
     return findQueueFamilies(device) && checkDeviceExtensionSupport(device) &&
@@ -509,6 +534,8 @@ class App {
   std::vector<VkImage> _swapchain_images;
   VkFormat _swapchain_image_format;
   VkExtent2D _swapchain_extent;
+
+  std::vector<VkImageView> _swapchain_image_views;
 };
 
 }  // namespace flappy
