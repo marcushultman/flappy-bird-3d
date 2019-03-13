@@ -13,13 +13,14 @@ add_subdirectory(vendor/glfw)
 
 include_directories(vendor/glfw/include)
 include_directories(vendor/sbt)
+include_directories(vendor/tinyobjloader)
 include_directories(${VULKAN_SDK}/include)
 include_directories(/usr/local/include)
 
 link_directories(${VULKAN_SDK}/lib)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_FLAGS "-framework Cocoa -framework OpenGL -framework IOKit -framework CoreVideo")
+set(CMAKE_CXX_FLAGS "-O3 -framework Cocoa -framework OpenGL -framework IOKit -framework CoreVideo")
 
 add_executable(flappy-bird main.cpp)
 
