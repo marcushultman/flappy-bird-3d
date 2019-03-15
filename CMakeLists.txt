@@ -19,15 +19,17 @@ include_directories(/usr/local/include)
 
 link_directories(${VULKAN_SDK}/lib)
 
+find_package(curl)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS "-O3 -framework Cocoa -framework OpenGL -framework IOKit -framework CoreVideo")
 
 add_executable(flappy-bird main.cpp)
 
 target_sources(flappy-bird PUBLIC
-  app.h
-  bird.h
-  game.h
+  src/app.cpp
+  # bird.h
+  # game.h
 )
 
 set(GLSLANG ${VULKAN_SDK}/bin/glslangValidator)
@@ -49,4 +51,4 @@ add_custom_target(shaders DEPENDS shaders/vert.spv shaders/frag.spv)
 
 add_dependencies(flappy-bird shaders)
 
-target_link_libraries(flappy-bird glfw vulkan)
+target_link_libraries(flappy-bird glfw vulkan curl)

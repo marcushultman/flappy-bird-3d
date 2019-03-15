@@ -3,26 +3,34 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
+#include <cstring>
 #include <map>
-#include <mutex>
 #include <optional>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/hash.hpp>
+#include <glm/gtx/norm.hpp>
 
-// #define STBI_ONLY_JPEG
-// #define STBI_NO_STDIO
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
-#include <vulkan/vulkan.h>
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
 
 #include "constraint.h"
 
 namespace graphics {
+
+const std::string MODEL_PATH = "../src/assets/models/chalet.obj";
+const std::string TEXTURE_PATH = "../src/assets/models/chalet.jpg";
 
 struct Vertex {
   glm::vec3 pos;
@@ -61,6 +69,21 @@ struct Vertex {
     return attrs;
   }
 };
+
+}  // namespace
+
+namespace std {
+template <>
+struct hash<graphics::Vertex> {
+  size_t operator()(graphics::Vertex const &vertex) const {
+    return ((hash<glm::vec3>()(vertex.pos) ^ (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^
+           (hash<glm::vec2>()(vertex.texCoord) << 1);
+  }
+};
+
+}  // namespace std
+
+namespace graphics {
 
 struct UniformBufferObject {
   glm::mat4 model;
@@ -183,7 +206,7 @@ class SoftImage {
 
   void start() { _previous_update = std::chrono::high_resolution_clock::now(); }
 
-  std::optional<VkSemaphore> updateVertices(uint32_t current_frame, uint32_t current_image) {
+  VkSemaphore updateVertices(uint32_t current_frame, uint32_t current_image) {
     VkSubmitInfo submit_info{};
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit_info.commandBufferCount = 1;
@@ -192,13 +215,10 @@ class SoftImage {
     const auto size = sizeof(Vertex) * _vertices.size();
 
     using namespace std::literals::chrono_literals;
+    // static const auto start_time = std::chrono::high_resolution_clock::now();
     const auto now = std::chrono::high_resolution_clock::now();
-    auto elapsed_time = static_cast<float>((now - _previous_update) / 1ms) / 1000;
+    const auto elapsed_time = static_cast<float>((now - _previous_update) / 1ms) / 1000;
     _previous_update = now;
-
-    if (elapsed_time == 0.0f) {
-      return {};
-    }
 
     // for (auto i = 0; i < _vertices.size(); ++i) {
     //   _vertices[i].pos =
@@ -290,46 +310,41 @@ class SoftImage {
   }
 
   void onDragStart(float x, float y, float aspect) {
+    const auto view = glm::lookAt(_camera_eye, _camera_center, _camera_up);
     const auto proj = glm::perspective(glm::radians(45.0f), aspect, 0.2f, 20.0f);
+
     auto ray_eye = glm::inverse(proj) * glm::vec4(x, y, 0.0, 1.0);
     ray_eye = glm::vec4(ray_eye.x, ray_eye.y, 1.0f, 0.0f);
-
-    std::scoped_lock lock(_mutex);
-    const auto view = glm::lookAt(_camera_eye, _camera_center, _camera_up);
     auto ray_world = glm::normalize(glm::vec3(glm::inverse(view) * ray_eye));
 
-    if (auto index = tryRaycastVertex(lock, _camera_eye, ray_world)) {
+    if (auto index = tryRaycastVertex(_camera_eye, ray_world)) {
       _drag = std::pair{*index, _vertices[*index].pos};
     }
   }
 
   void onDragEnd() {
-    std::scoped_lock lock(_mutex);
     _drag = {};
     _prev = {};
   }
 
-  void onDragMove(float x, float y) {
-    std::scoped_lock lock(_mutex);
+  void onDragMove(float xpos, float ypos) {
+    // Drag mesh
     if (_drag && _prev) {
-      glm::vec2 dpos(_prev->x - x, y - _prev->y);
+      glm::vec2 dpos(_prev->x - xpos, ypos - _prev->y);
       _drag->second += 0.01f * glm::vec3(dpos, 0);
       _drag->second.z = 0.5f;
     }
-    _prev = {x, y};
+    _prev = {xpos, ypos};
   }
 
-  std::optional<uint32_t> tryRaycastVertex(const std::scoped_lock<std::mutex> &lock,
-                                           glm::vec3 origin,
-                                           glm::vec3 dir) const {
+  std::optional<uint32_t> tryRaycastVertex(glm::vec3 origin, glm::vec3 dir) const {
     std::optional<uint32_t> index;
     float minDist = FLT_MAX;
     for (uint32_t i = 0; i < _vertices.size(); i++) {
       glm::vec3 a = _vertices[i].pos - origin;
       glm::vec3 b = glm::dot(a, dir) * dir;
-      auto diff = a - b;
-      if (glm::dot(diff, diff) < 0.02f) {
-        float d = glm::dot(b, b);
+      if (glm::length2(a - b) < 0.02f) {
+        float d = glm::length2(b);
         if (d < minDist) {
           minDist = d;
           index = i;
@@ -344,20 +359,7 @@ class SoftImage {
     int width, height, channels;
     const auto path = "../src/assets/textures/c8a60bd180d5efe02e44cb44634802fbc95f8e49.jpeg";
     auto *pixels = stbi_load(path, &width, &height, &channels, STBI_rgb_alpha);
-
-    // width = 2;
-    // height = 2;
-    // channels = 4;
-    // clang-format off
-    // auto image_data = std::vector<unsigned char>{
-    //   0xff,0,0,1,
-    //   0,0xff,0,1,
-    //   0,0,0xff,1,
-    //   0xff,0xff,0,1,
-    // };
-    // clang-format on
-    // auto *pixels = image_data.data();
-
+    // auto *pixels = stbi_load(TEXTURE_PATH.c_str(), &width, &height, &channels, STBI_rgb_alpha);
     VkDeviceSize image_size(width * height * 4);
 
     if (!pixels) {
@@ -415,6 +417,9 @@ class SoftImage {
     samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    // samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    // samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    // samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     samplerInfo.anisotropyEnable = VK_TRUE;
     samplerInfo.maxAnisotropy = 16;
     samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
@@ -463,6 +468,47 @@ class SoftImage {
     }
   }
 
+  void loadModel() {
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
+      throw std::runtime_error(warn + err);
+    }
+    std::unordered_map<Vertex, uint32_t> unique_vertices;
+    std::unordered_map<int, uint32_t> vertex_index_map;
+
+    std::vector<float> z;
+
+    for (const auto &shape : shapes) {
+      for (const auto &index : shape.mesh.indices) {
+        glm::vec3 pos = {attrib.vertices[3 * index.vertex_index + 0],
+                         attrib.vertices[3 * index.vertex_index + 1],
+                         attrib.vertices[3 * index.vertex_index + 2]};
+        glm::vec2 texcoord = {attrib.texcoords[2 * index.texcoord_index + 0],
+                              1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
+        Vertex vertex{pos, {1.0f, 1.0f, 1.0f}, texcoord};
+        if (unique_vertices.count(vertex) == 0) {
+          const auto i = static_cast<uint32_t>(_vertices.size());
+          unique_vertices[vertex] = vertex_index_map[index.vertex_index] = i;
+          _vertices.push_back(vertex);
+          _rest_positions.push_back(pos);
+          _pbd_positions.push_back(pos);
+          _pbd_velocities.push_back({0, 0, 0});
+          _pbd_weights.push_back(0.25f);
+          // z.push_back(pos.z);
+        }
+        _indices.push_back(unique_vertices[vertex]);
+      }
+    }
+
+    std::sort(z.begin(), z.end());
+    printf("p0: %f p10: %f p25: %f\n", z[0], z[z.size() / 10], z[z.size() / 4]);
+    z.clear();
+  }
+
   void createConstraints() {
     assert(_indices.size() % 3 == 0);
     std::map<std::array<uint32_t, 2>, std::vector<uint32_t>> adjacent_faces;
@@ -478,6 +524,13 @@ class SoftImage {
       adjacent_faces[{c1.first[0], c1.first[1]}].push_back(*(index + 2));
       adjacent_faces[{c2.first[0], c2.first[1]}].push_back(*(index + 1));
       adjacent_faces[{c3.first[0], c3.first[1]}].push_back(*index);
+      // for (auto o = 0; o < 3; ++o) {
+      //   auto i = *(index + o);
+      //   auto pos = _vertices[i].pos;
+      //   if (pos.z < 0.15f) {
+      //     _constraints.insert(makeCollisionConstraint(i, pos));
+      //   }
+      // }
     }
     for (auto &[edge, corners] : adjacent_faces) {
       if (corners.size() > 1) {
@@ -883,12 +936,10 @@ class SoftImage {
   VkCommandPool &_command_pool;
   VkDescriptorPool &_descriptor_pool;
 
-  std::mutex _mutex;
-
   uint32_t _swapchain_images_size{0};
   uint32_t _frames_in_flight{0};
 
-  const glm::vec3 _camera_eye{0.0f, 0.1f, 4.5f};
+  const glm::vec3 _camera_eye{0.0f, 0.5f, 4.5f};
   const glm::vec3 _camera_center{0.0f, 0.0f, 0.0f};
   const glm::vec3 _camera_up{0.0f, 0.0f, 1.0f};
 
@@ -925,8 +976,8 @@ class SoftImage {
 
   std::map<Indices, Solve> _constraints;
 
-  size_t _solver_iterations{4};
-  float _weight{0.9f};
+  size_t _solver_iterations{6};
+  float _weight{0.8f};
 
   std::chrono::high_resolution_clock::time_point _previous_update;
 

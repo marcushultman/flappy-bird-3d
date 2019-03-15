@@ -1,14 +1,13 @@
 #pragma once
 
 #include <array>
-#include <cmath>
 #include <functional>
 #include <utility>
 #include <vector>
 
 #include <glm/glm.hpp>
 
-namespace flappy {
+namespace graphics {
 
 using Indices = std::vector<uint32_t>;
 using Positions = std::vector<glm::vec3>;
@@ -75,7 +74,7 @@ Constraint makeBendingConstraint(std::array<uint32_t, 4> indices, std::vector<fl
     glm::vec3 sn2 = glm::normalize(glm::cross(s2, s4));
     float rd = std::max(0.0f, std::min(glm::dot(sn1, sn2), 1.0f));
 
-    float sum = glm::length2(q1) + glm::length2(q2) + glm::length2(q3) + glm::length2(q4);
+    float sum = glm::dot(q1, q1) + glm::dot(q2, q2) + glm::dot(q3, q3) + glm::dot(q4, q4);
     float coe = sum != 0 ? coe = -glm::sqrt(1 - d * d) * (acos(d) - acos(rd)) / sum : 0;
 
     float k = 1 - pow(1 - stiffness, 1 / static_cast<float>(iterations));
@@ -89,4 +88,4 @@ Constraint makeBendingConstraint(std::array<uint32_t, 4> indices, std::vector<fl
   return {{indices.begin(), indices.end()}, solve};
 }
 
-}  // namespace flappy
+}  // namespace graphics
