@@ -11,11 +11,17 @@ set(VULKAN_SDK $ENV{VULKAN_SDK})
 
 add_subdirectory(vendor/glfw)
 
+set(NOWPLAYING_HACK /Users/hultman/spotify/client-android/native/src/core/bindings/android/nowplaying-hack/jni)
+
+include_directories(src/vulkan)
+include_directories(${NOWPLAYING_HACK}/src)
+include_directories(${NOWPLAYING_HACK}/shaders)
 include_directories(vendor/glfw/include)
-include_directories(vendor/sbt)
 include_directories(vendor/tinyobjloader)
 include_directories(${VULKAN_SDK}/include)
 include_directories(/usr/local/include)
+
+include_directories(/Users/hultman/spotify/client-android/native/src/core/vendor/stb)
 
 link_directories(${VULKAN_SDK}/lib)
 
@@ -24,12 +30,12 @@ find_package(curl)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS "-O3 -framework Cocoa -framework OpenGL -framework IOKit -framework CoreVideo")
 
-add_executable(flappy-bird main.cpp)
+add_executable(flappy-bird src/main2.cpp)
 
 target_sources(flappy-bird PUBLIC
-  src/app.cpp
-  # bird.h
-  # game.h
+  ${NOWPLAYING_HACK}/src/app.cpp
+  ${NOWPLAYING_HACK}/src/constraint.cpp
+  ${NOWPLAYING_HACK}/src/soft_image.cpp
 )
 
 set(GLSLANG ${VULKAN_SDK}/bin/glslangValidator)
